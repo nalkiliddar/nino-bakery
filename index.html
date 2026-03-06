@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<title>Nino Bakery</title>
+
+<link rel="stylesheet" href="/static/style.css">
+
+</head>
+
+<body>
+
+<h1>Nino Bakery 🍰</h1>
+
+<h2>Desserts</h2>
+
+<div class="menu">
+
+<div class="menu-item">
+<img src="https://images.unsplash.com/photo-1606313564200-e75d5e30476c">
+<h3>Chocolate Raspberry Cake</h3>
+</div>
+
+<div class="menu-item">
+<img src="https://images.unsplash.com/photo-1621303837174-89787a7d4729">
+<h3>Pistachio Cake</h3>
+</div>
+
+<div class="menu-item">
+<img src="https://images.unsplash.com/photo-1587241321921-91a834d6d191">
+<h3>Eclair</h3>
+</div>
+
+<div class="menu-item">
+<img src="https://images.unsplash.com/photo-1607478900766-efe13248b125">
+<h3>Blueberry Muffin</h3>
+</div>
+
+<div class="menu-item">
+<img src="https://images.unsplash.com/photo-1509440159596-0249088772ff">
+<h3>Almond Croissant</h3>
+</div>
+
+</div>
+
+<h2>Place an Order</h2>
+
+<form id="orderForm">
+
+<input type="text" id="name" placeholder="Customer Name" required>
+<br>
+
+<input type="email" id="email" placeholder="Email Address" required>
+<br>
+
+<input type="text" id="phone" placeholder="Phone Number" required>
+<br>
+
+<select id="item">
+
+<option>Chocolate Raspberry Cake</option>
+<option>Pistachio Cake</option>
+<option>Eclair</option>
+<option>Blueberry Muffin</option>
+<option>Almond Croissant</option>
+
+</select>
+
+<br>
+
+<input type="date" id="date" required>
+
+<br>
+
+<button type="submit">Place Order</button>
+
+</form>
+
+
+<br><br>
+
+<a href="tel:{{phone}}">
+<button class="call-button">📞 Call Bakery</button>
+</a>
+
+<a href="sms:{{phone}}">
+<button class="sms-button">💬 Text Bakery</button>
+</a>
+
+<script>
+
+document.getElementById("orderForm").addEventListener("submit", function(e){
+
+e.preventDefault()
+
+fetch("/place_order",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+
+name:document.getElementById("name").value,
+email:document.getElementById("email").value,
+phone:document.getElementById("phone").value,
+item:document.getElementById("item").value,
+date:document.getElementById("date").value
+
+})
+
+})
+
+.then(response=>response.json())
+.then(data=>alert(data.message))
+
+})
+
+</script>
+
+</body>
+</html>
