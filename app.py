@@ -1,37 +1,48 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from azure.storage.blob import BlobServiceClient
 from azure.communication.callautomation import CallAutomationClient
-import uuid
+import pyodbc
 import json
-from datetime import datetime
+import uuid
 import config
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Azure Blob
-blob_service_client = BlobServiceClient.from_connection_string(
-    config.AZURE_STORAGE_CONNECTION_STRING
+# Azure clients
+blob_service = BlobServiceClient.from_connection_string(
+    config.BLOB_CONNECTION_STRING
 )
 
-container_client = blob_service_client.get_container_client(
-    config.CONTAINER_NAME
-)
-
-# Azure Communication Services
 call_client = CallAutomationClient.from_connection_string(
     config.ACS_CONNECTION_STRING
 )
 
 
-@app.route("/")
-def home():
-    return render_template(
-        "index.html",
-        phone=config.ACS_PHONE_NUMBER
+# SQL connection
+def get_db_connection():
+
+    conn = pyodbc.connect(
+        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+        f"SERVER={config.SQL_SERVER};"
+        f"DATABASE={config.SQL_DB};"
+        f"UID={config.SQL_USER};"
+        f"PWD={config.SQL_PASSWORD};"
+        "Encrypt=yes;"
     )
 
+    return conn
 
-# Order API
+
+@app.route("/")
+def index():
+    return render_template("index.html", phone=config.ACS_PHONE_NUMBER)
+
+
+# ---------------------------------------------------
+# PLACE ORDER
+# ---------------------------------------------------
+
 @app.route("/place_order", methods=["POST"])
 def place_order():
 
@@ -39,69 +50,86 @@ def place_order():
 
     order = {
         "id": str(uuid.uuid4()),
-        "name": data["name"],
-        "email": data["email"],
+        "customer": data["name"],
         "phone": data["phone"],
         "item": data["item"],
-        "date": data["date"],
-        "timestamp": str(datetime.utcnow())
+        "pickup_date": data["date"],
+        "time": datetime.utcnow().isoformat()
     }
 
-    blob_name = f"order_{order['id']}.json"
+    container = blob_service.get_container_client(config.BLOB_CONTAINER)
 
-    container_client.upload_blob(
-        blob_name,
-        json.dumps(order),
+    blob_name = f"order-{order['id']}.json"
+
+    container.upload_blob(
+        name=blob_name,
+        data=json.dumps(order),
         overwrite=True
     )
 
-    return jsonify({"message": "Order successfully placed!"})
+    return jsonify({"message": "Order received!"})
 
 
-# Webhook for incoming calls
-@app.route("/incomingCall", methods=["POST"])
+# ---------------------------------------------------
+# INCOMING CALL WEBHOOK
+# ---------------------------------------------------
+
+@app.route("/incoming_call", methods=["POST"])
 def incoming_call():
 
     events = request.json
 
     for event in events:
 
-        if event["type"] == "Microsoft.Communication.IncomingCall":
+        if event["eventType"] == "Microsoft.Communication.IncomingCall":
 
             incoming_context = event["data"]["incomingCallContext"]
 
-            callback_url = "https://YOURDOMAIN/api/callback"
+            caller = event["data"]["from"]["phoneNumber"]["value"]
+            called = event["data"]["to"]["phoneNumber"]["value"]
 
-            call_client.answer_call(
+            log_call(caller, called)
+
+            answer = call_client.answer_call(
                 incoming_call_context=incoming_context,
-                callback_url=callback_url
+                callback_url="https://yourdomain.com/callback"
             )
 
-    return "OK"
+            connection_id = answer.call_connection_id
 
+            connection = call_client.get_call_connection(connection_id)
 
-# After call is answered route to agent
-@app.route("/api/callback", methods=["POST"])
-def callback():
-
-    events = request.json
-
-    for event in events:
-
-        if event["type"] == "Microsoft.Communication.CallConnected":
-
-            call_connection_id = event["data"]["callConnectionId"]
-
-            call_connection = call_client.get_call_connection(
-                call_connection_id
-            )
-
-            call_connection.add_participant({
-                "phoneNumber": config.SUPPORT_AGENT_PHONE
+            connection.transfer_call_to_participant({
+                "phoneNumber": {
+                    "value": config.SUPPORT_AGENT_PHONE
+                }
             })
 
-    return "OK"
+    return jsonify({"status": "ok"})
+
+
+# ---------------------------------------------------
+# LOG CALL
+# ---------------------------------------------------
+
+def log_call(caller, called):
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO CallLogs (caller_number, called_number, call_time)
+        VALUES (?, ?, ?)
+        """,
+        caller,
+        called,
+        datetime.utcnow()
+    )
+
+    conn.commit()
+    conn.close()
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
